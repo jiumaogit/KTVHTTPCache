@@ -22,14 +22,14 @@
 {
     if (self = [super init]) {
         self.path = path;
-        NSMutableArray *unitArray = nil;
+        NSArray *tmpUnitArray = nil;
         @try {
-            unitArray = [NSKeyedUnarchiver unarchiveObjectWithFile:self.path];
+            tmpUnitArray = [NSKeyedUnarchiver unarchiveObjectWithFile:self.path];
         } @catch (NSException *exception) {
             KTVHCLogDataUnitQueue(@"%p, Init exception\nname : %@\breason : %@\nuserInfo : %@", self, exception.name, exception.reason, exception.userInfo);
         }
         self.unitArray = [NSMutableArray array];
-        for (KTVHCDataUnit *obj in unitArray) {
+        for (KTVHCDataUnit *obj in tmpUnitArray) {
             if (obj.error) {
                 [obj deleteFiles];
             } else {
@@ -42,10 +42,13 @@
 
 - (NSArray<KTVHCDataUnit *> *)allUnits
 {
-    if (self.unitArray.count <= 0) {
-        return nil;
+    NSArray *tmpArr = nil;
+    @synchronized (self.unitArray) {
+        if (self.unitArray.count > 0) {
+            tmpArr = [self.unitArray copy];
+        }
     }
-    return [self.unitArray copy];
+    return tmpArr;
 }
 
 - (KTVHCDataUnit *)unitWithKey:(NSString *)key
@@ -54,10 +57,12 @@
         return nil;
     }
     KTVHCDataUnit *unit = nil;
-    for (KTVHCDataUnit *obj in self.unitArray) {
-        if ([obj.key isEqualToString:key]) {
-            unit = obj;
-            break;
+    @synchronized (self.unitArray) {
+        for (KTVHCDataUnit *obj in self.unitArray) {
+            if ([obj.key isEqualToString:key]) {
+                unit = obj;
+                break;
+            }
         }
     }
     return unit;
@@ -68,8 +73,10 @@
     if (!unit) {
         return;
     }
-    if (![self.unitArray containsObject:unit]) {
-        [self.unitArray addObject:unit];
+    @synchronized (self.unitArray) {
+        if (![self.unitArray containsObject:unit]) {
+            [self.unitArray addObject:unit];
+        }
     }
 }
 
@@ -78,15 +85,23 @@
     if (!unit) {
         return;
     }
-    if ([self.unitArray containsObject:unit]) {
-        [self.unitArray removeObject:unit];
+    @synchronized (self.unitArray) {
+        if ([self.unitArray containsObject:unit]) {
+            [self.unitArray removeObject:unit];
+        }
     }
 }
 
 - (void)archive
 {
     KTVHCLogDataUnitQueue(@"%p, Archive - Begin, %ld", self, (long)self.unitArray.count);
-    [NSKeyedArchiver archiveRootObject:self.unitArray toFile:self.path];
+    NSArray *tmpArr = nil;
+    @synchronized (self.unitArray) {
+        tmpArr = [self.unitArray copy];
+    }
+    if (tmpArr) {
+        [NSKeyedArchiver archiveRootObject:tmpArr toFile:self.path];
+    }
     KTVHCLogDataUnitQueue(@"%p, Archive - End  , %ld", self, (long)self.unitArray.count);
 }
 
